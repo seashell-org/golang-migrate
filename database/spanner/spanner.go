@@ -15,10 +15,10 @@ import (
 
 	"cloud.google.com/go/spanner"
 	sdb "cloud.google.com/go/spanner/admin/database/apiv1"
-	"cloud.google.com/go/spanner/spansql"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database"
+	"github.com/golang-migrate/migrate/v4/database/spanner/spansql"
 
 	"github.com/hashicorp/go-multierror"
 	uatomic "go.uber.org/atomic"
@@ -41,12 +41,13 @@ const (
 
 // Driver errors
 var (
-	ErrNilConfig      = errors.New("no config")
-	ErrNoDatabaseName = errors.New("no database name")
-	ErrNoSchema       = errors.New("no schema")
-	ErrDatabaseDirty  = errors.New("database is dirty")
-	ErrLockHeld       = errors.New("unable to obtain lock")
-	ErrLockNotHeld    = errors.New("unable to release already released lock")
+	ErrNilConfig       = errors.New("no config")
+	ErrNoDatabaseName  = errors.New("no database name")
+	ErrNoSchema        = errors.New("no schema")
+	ErrDatabaseDirty   = errors.New("database is dirty")
+	ErrLockHeld        = errors.New("unable to obtain lock")
+	ErrLockNotHeld     = errors.New("unable to release already released lock")
+	ErrInvalidStmtType = errors.New("Invalid statement type")
 )
 
 // Config used for a Spanner instance
@@ -176,26 +177,49 @@ func (s *Spanner) Run(migration io.Reader) error {
 		return err
 	}
 
-	stmts := []string{string(migr)}
-	if s.config.CleanStatements {
-		stmts, err = cleanStatements(migr)
-		if err != nil {
-			return err
-		}
+	stmts, err := cleanStatements(migr)
+	if err != nil {
+		return err
 	}
 
 	ctx := context.Background()
-	op, err := s.db.admin.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
-		Database:   s.config.DatabaseName,
-		Statements: stmts,
-	})
 
-	if err != nil {
-		return &database.Error{OrigErr: err, Err: "migration failed", Query: migr}
-	}
+	for _, stmt := range stmts {
+		if stmt.t == "ddl" {
+			op, err := s.db.admin.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
+				Database:   s.config.DatabaseName,
+				Statements: stmt.sqls,
+			})
 
-	if err := op.Wait(ctx); err != nil {
-		return &database.Error{OrigErr: err, Err: "migration failed", Query: migr}
+			if err != nil {
+				return &database.Error{OrigErr: err, Err: "migration failed", Query: migr}
+			}
+
+			if err := op.Wait(ctx); err != nil {
+				return &database.Error{OrigErr: err, Err: "migration failed", Query: migr}
+			}
+		} else if stmt.t == "dml" {
+			spannerStmts := []spanner.Statement{}
+			for _, sql := range stmt.sqls {
+				spannerStmts = append(spannerStmts, spanner.Statement{
+					SQL: sql,
+				})
+			}
+
+			_, err = s.db.data.ReadWriteTransaction(ctx, func(ctx context.Context, rwt *spanner.ReadWriteTransaction) error {
+				_, err := rwt.BatchUpdate(ctx, spannerStmts)
+				if err != nil {
+					return err
+				}
+
+				return nil
+			})
+			if err != nil {
+				return &database.Error{OrigErr: err, Err: "migration failed", Query: migr}
+			}
+		} else {
+			return ErrInvalidStmtType
+		}
 	}
 
 	return nil
@@ -342,17 +366,45 @@ func (s *Spanner) ensureVersionTable() (err error) {
 	return nil
 }
 
-func cleanStatements(migration []byte) ([]string, error) {
+type statement struct {
+	t    string
+	sqls []string
+}
+
+func cleanStatements(migration []byte) ([]statement, error) {
 	// The Spanner GCP backend does not yet support comments for the UpdateDatabaseDdl RPC
 	// (see https://issuetracker.google.com/issues/159730604) we use
 	// spansql to parse the DDL and output valid stamements without comments
-	ddl, err := spansql.ParseDDL("", string(migration))
+	ddlAndDml, err := spansql.ParseDDLAndDML("", string(migration))
 	if err != nil {
 		return nil, err
 	}
-	stmts := make([]string, 0, len(ddl.List))
-	for _, stmt := range ddl.List {
-		stmts = append(stmts, stmt.SQL())
+	stmts := make([]statement, 0, len(ddlAndDml.List))
+	lastType := ""
+	stmtsBuffer := []string(nil)
+	for _, stmt := range ddlAndDml.List {
+		if lastType != stmt.T && lastType != "" {
+			stmts = append(stmts, statement{
+				sqls: stmtsBuffer,
+				t:    lastType,
+			})
+			stmtsBuffer = []string(nil)
+		}
+		if stmt.T == "ddl" {
+			stmtsBuffer = append(stmtsBuffer, stmt.Ddl.SQL())
+		} else if stmt.T == "dml" {
+			stmtsBuffer = append(stmtsBuffer, stmt.Dml.SQL())
+		} else {
+			return nil, ErrInvalidStmtType
+		}
+		lastType = stmt.T
 	}
+	if len(stmtsBuffer) > 0 && lastType != "" {
+		stmts = append(stmts, statement{
+			sqls: stmtsBuffer,
+			t:    lastType,
+		})
+	}
+
 	return stmts, nil
 }
