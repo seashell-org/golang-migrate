@@ -16,9 +16,9 @@ import (
 	"cloud.google.com/go/spanner"
 	sdb "cloud.google.com/go/spanner/admin/database/apiv1"
 
-	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database"
-	"github.com/golang-migrate/migrate/v4/database/spanner/spansql"
+	migrate "github.com/seashell-org/golang-migrate/v4"
+	"github.com/seashell-org/golang-migrate/v4/database"
+	"github.com/seashell-org/golang-migrate/v4/database/spanner/spansql"
 
 	"github.com/hashicorp/go-multierror"
 	uatomic "go.uber.org/atomic"

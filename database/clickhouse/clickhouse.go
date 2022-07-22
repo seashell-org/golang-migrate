@@ -12,10 +12,10 @@ import (
 
 	"go.uber.org/atomic"
 
-	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database"
-	"github.com/golang-migrate/migrate/v4/database/multistmt"
 	"github.com/hashicorp/go-multierror"
+	migrate "github.com/seashell-org/golang-migrate/v4"
+	"github.com/seashell-org/golang-migrate/v4/database"
+	"github.com/seashell-org/golang-migrate/v4/database/multistmt"
 )
 
 var (

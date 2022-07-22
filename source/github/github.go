@@ -3,7 +3,6 @@ package github
 import (
 	"context"
 	"fmt"
-	"golang.org/x/oauth2"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -12,8 +11,10 @@ import (
 	"path"
 	"strings"
 
-	"github.com/golang-migrate/migrate/v4/source"
+	"golang.org/x/oauth2"
+
 	"github.com/google/go-github/v39/github"
+	"github.com/seashell-org/golang-migrate/v4/source"
 )
 
 func init() {

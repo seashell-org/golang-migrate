@@ -3,7 +3,6 @@ package cassandra
 import (
 	"errors"
 	"fmt"
-	"go.uber.org/atomic"
 	"io"
 	"io/ioutil"
 	nurl "net/url"
@@ -11,10 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"go.uber.org/atomic"
+
 	"github.com/gocql/gocql"
-	"github.com/golang-migrate/migrate/v4/database"
-	"github.com/golang-migrate/migrate/v4/database/multistmt"
 	"github.com/hashicorp/go-multierror"
+	"github.com/seashell-org/golang-migrate/v4/database"
+	"github.com/seashell-org/golang-migrate/v4/database/multistmt"
 )
 
 func init() {
@@ -261,7 +262,7 @@ func (c *Cassandra) SetVersion(version int, dirty bool) error {
 
 	// Also re-write the schema version for nil dirty versions to prevent
 	// empty schema version for failed down migration on the first migration
-	// See: https://github.com/golang-migrate/migrate/issues/330
+	// See: https://github.com/seashell-org/golang-migrate/issues/330
 	if version >= 0 || (version == database.NilVersion && dirty) {
 		query := `INSERT INTO "` + c.config.MigrationsTable + `" (version, dirty) VALUES (?, ?)`
 		if err := c.session.Query(query, version, dirty).Exec(); err != nil {

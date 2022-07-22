@@ -3,17 +3,18 @@ package sqlcipher
 import (
 	"database/sql"
 	"fmt"
-	"go.uber.org/atomic"
 	"io"
 	"io/ioutil"
 	nurl "net/url"
 	"strconv"
 	"strings"
 
-	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database"
+	"go.uber.org/atomic"
+
 	"github.com/hashicorp/go-multierror"
 	_ "github.com/mutecomm/go-sqlcipher/v4"
+	migrate "github.com/seashell-org/golang-migrate/v4"
+	"github.com/seashell-org/golang-migrate/v4/database"
 )
 
 func init() {
@@ -241,7 +242,7 @@ func (m *Sqlite) SetVersion(version int, dirty bool) error {
 
 	// Also re-write the schema version for nil dirty versions to prevent
 	// empty schema version for failed down migration on the first migration
-	// See: https://github.com/golang-migrate/migrate/issues/330
+	// See: https://github.com/seashell-org/golang-migrate/issues/330
 	if version >= 0 || (version == database.NilVersion && dirty) {
 		query := fmt.Sprintf(`INSERT INTO %s (version, dirty) VALUES (?, ?)`, m.config.MigrationsTable)
 		if _, err := tx.Exec(query, version, dirty); err != nil {
